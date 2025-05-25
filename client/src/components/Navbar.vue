@@ -213,6 +213,6 @@ const handleRegister = async (): Promise<void> => {
 }
 
 const handleLogout = (): void => {
-  logout()
+  logout(true)
 }
 </script>

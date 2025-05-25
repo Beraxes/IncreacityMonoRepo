@@ -69,7 +69,7 @@ export interface AuthContext {
   isLoading: Ref<boolean>
   login: (username: string, password: string) => Promise<User>
   register: (username: string, email: string, password: string) => Promise<User>
-  logout: () => void
+  logout: (isManual?: boolean) => void
   handleUnauthorized: () => void
 }
 
