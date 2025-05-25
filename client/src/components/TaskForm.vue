@@ -27,7 +27,7 @@
           <textarea
             id="description"
             v-model="description"
-            placeholder="Task description (Required)"
+            placeholder="Task description (optional)"
             rows="3"
             class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 resize-none"
           ></textarea>
@@ -40,10 +40,10 @@
             v-model="status"
             class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
           >
-            <option value="TO_DO">To Do</option>
-            <option value="IN_PROGRESS">In Progress</option>
-            <option value="COMPLETED">Completed</option>
-            <option value="WONT_DO">Won't Do</option>
+            <option :value="TaskStatus.TO_DO">To Do</option>
+            <option :value="TaskStatus.IN_PROGRESS">In Progress</option>
+            <option :value="TaskStatus.COMPLETED">Completed</option>
+            <option :value="TaskStatus.WONT_DO">Won't Do</option>
           </select>
         </div>
 
@@ -67,39 +67,56 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref } from 'vue'
 import { XIcon } from 'lucide-vue-next'
+import { TaskStatus, type Task } from '../types'
 
-const props = defineProps({
-  task: Object,
-  selectedCategory: String,
-})
-
-const emit = defineEmits(['submit', 'cancel'])
-
-const TaskStatus = {
-  TO_DO: 'TO_DO',
-  IN_PROGRESS: 'IN_PROGRESS',
-  COMPLETED: 'COMPLETED',
-  WONT_DO: 'WONT_DO',
+interface Props {
+  task?: Task | null
+  selectedCategory?: TaskStatus | null
 }
 
-// Form state
-const title = ref(props.task?.title || '')
-const description = ref(props.task?.description || '')
-const status = ref(props.task?.status || props.selectedCategory || TaskStatus.TO_DO)
-const icon = ref(props.task?.icon || 'file')
+interface Emits {
+  (e: 'submit', task: Task): void
+  (e: 'cancel'): void
+}
 
-const handleSubmit = () => {
+const props = defineProps<Props>()
+const emit = defineEmits<Emits>()
+
+// Form state
+const title = ref<string>(props.task?.title || '')
+const description = ref<string>(props.task?.description || '')
+const status = ref<TaskStatus>(props.task?.status || props.selectedCategory || TaskStatus.TO_DO)
+
+const handleSubmit = (): void => {
   if (!title.value.trim()) return
 
-  const newTask = {
+  // Automatically set icon based on status
+  let autoIcon = 'file'
+  switch (status.value) {
+    case TaskStatus.IN_PROGRESS:
+      autoIcon = 'clock'
+      break
+    case TaskStatus.COMPLETED:
+      autoIcon = 'check'
+      break
+    case TaskStatus.WONT_DO:
+      autoIcon = 'coffee'
+      break
+    case TaskStatus.TO_DO:
+      autoIcon = 'file'
+      break
+  }
+
+  const newTask: Task = {
     id: props.task?.id || Date.now().toString(),
+    _id: props.task?._id,
     title: title.value,
     description: description.value,
     status: status.value,
-    icon: icon.value,
+    icon: autoIcon,
     isPublic: props.task?.isPublic || false,
   }
 

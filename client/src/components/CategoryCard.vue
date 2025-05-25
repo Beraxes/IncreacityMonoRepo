@@ -1,45 +1,58 @@
 <template>
   <div
     :class="[
-      'rounded-xl p-4 cursor-pointer transition-all',
+      'rounded-xl p-4 cursor-pointer transition-all duration-200',
       category.bgColor,
-      selected ? `ring-2 ${category.ringColor}` : ''
+      selected ? `ring-2 ${category.ringColor}` : 'hover:scale-105'
     ]"
     @click="$emit('click')"
   >
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-3">
         <div class="h-8 w-8 rounded-md bg-white flex items-center justify-center">
-          <component :is="getIcon(category.icon)" :class="['h-5 w-5', category.iconColor]" />
+          <component :is="getIcon()" :class="['h-5 w-5', category.iconColor]" />
         </div>
-        <h3 class="font-medium text-gray-900">{{ category.title }}</h3>
+        <div>
+          <h3 class="font-medium text-gray-900">{{ category.title }}</h3>
+          <p class="text-sm text-gray-600">{{ getTaskCount() }} tasks</p>
+        </div>
       </div>
-      <div :class="['h-8 w-8 rounded-md flex items-center justify-center', category.actionColor]">
-        <component :is="getActionIcon(category.status)" class="h-4 w-4 text-white" />
+      <div v-if="selected" class="text-amber-600">
+        <CheckIcon class="h-5 w-5" />
       </div>
     </div>
   </div>
 </template>
 
-<script setup>
-import { ClockIcon, CheckCircle2Icon, CoffeeIcon, FileTextIcon, PlayIcon, CheckCircleIcon, XIcon } from 'lucide-vue-next'
+<script setup lang="ts">
+import { computed, inject } from 'vue'
+import { 
+  ClockIcon, 
+  CheckCircle2Icon, 
+  CoffeeIcon, 
+  FileTextIcon,
+  CheckIcon 
+} from 'lucide-vue-next'
+import type { Category } from '../types'
 
-defineProps({
-  category: Object,
-  selected: Boolean,
-})
-
-defineEmits(['click'])
-
-const TaskStatus = {
-  TO_DO: 'TO_DO',
-  IN_PROGRESS: 'IN_PROGRESS',
-  COMPLETED: 'COMPLETED',
-  WONT_DO: 'WONT_DO',
+interface Props {
+  category: Category
+  selected: boolean
 }
 
-const getIcon = (iconName) => {
-  switch (iconName) {
+const props = defineProps<Props>()
+defineEmits<{
+  (e: 'click'): void
+}>()
+
+// You would need to inject tasks or pass them as props
+// For now, we'll return 0
+const getTaskCount = (): number => {
+  return 0 // This should be calculated based on actual tasks
+}
+
+const getIcon = () => {
+  switch (props.category.icon) {
     case 'clock':
       return ClockIcon
     case 'check-circle':
@@ -50,17 +63,6 @@ const getIcon = (iconName) => {
       return FileTextIcon
     default:
       return FileTextIcon
-  }
-}
-
-const getActionIcon = (status) => {
-  switch (status) {
-    case TaskStatus.COMPLETED:
-      return CheckCircleIcon
-    case TaskStatus.WONT_DO:
-      return XIcon
-    default:
-      return PlayIcon
   }
 }
 </script>

@@ -49,12 +49,17 @@
   </form>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, inject } from 'vue'
+import type { AuthContext } from '../types';
 
 const emit = defineEmits(['success', 'registerClick'])
 
-const auth = inject('auth')
+const auth = inject<AuthContext>('auth');
+
+if (!auth) {
+  throw new Error('Auth context not provided. Ensure it is available via provide/inject.');
+}
 const { login } = auth
 
 const username = ref('')
@@ -69,7 +74,7 @@ const handleSubmit = async () => {
   try {
     await login(username.value, password.value)
     emit('success')
-  } catch (err) {
+  } catch (err: any) {
     error.value = err.message || 'Failed to login'
   } finally {
     isLoading.value = false

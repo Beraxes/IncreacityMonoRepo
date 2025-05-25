@@ -1,78 +1,218 @@
 <template>
-  <nav class="bg-white border-b border-gray-200 px-4 py-3 flex justify-between items-center">
-    <div class="flex items-center gap-2">
-      <div class="h-8 w-8 rounded-full bg-amber-400 flex items-center justify-center">
-        <div class="h-3 w-3 rounded-full bg-amber-600"></div>
+  <nav class="bg-white border-b border-gray-200 px-4 py-3">
+    <div class="flex items-center justify-between max-w-md mx-auto">
+      <div class="flex items-center gap-2">
+        <div class="h-6 w-6 rounded bg-amber-400 flex items-center justify-center">
+          <div class="h-2 w-2 rounded bg-amber-600"></div>
+        </div>
+        <span class="font-semibold text-gray-900">Task Manager</span>
       </div>
-      <span class="font-bold text-xl">Task Manager</span>
-    </div>
-
-    <div>
-      <div v-if="user" class="flex items-center gap-4">
-        <span class="text-sm text-gray-600">Hello, {{ user.username || user.email }}</span>
-        <button
-          @click="logout"
-          class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
-        >
-          Logout
-        </button>
-      </div>
-      <button
-        v-else
-        @click="showLoginModal = true"
-        class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium hover:bg-gray-50 transition-colors"
-      >
-        Login / Register
-      </button>
-    </div>
-
-    <!-- Auth Modal -->
-    <div v-if="showLoginModal" class="fixed inset-0 z-50 flex items-center justify-center">
-      <div class="fixed inset-0 bg-black bg-opacity-50" @click="showLoginModal = false"></div>
-      <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 relative z-10">
-        <div class="flex justify-between items-center mb-4">
-          <h2 class="text-lg font-semibold">{{ isLogin ? 'Login' : 'Register' }}</h2>
-          <button @click="showLoginModal = false" class="text-gray-400 hover:text-gray-600">
-            <XIcon class="h-5 w-5" />
+      
+      <div class="flex items-center gap-2">
+        <div v-if="user" class="flex items-center gap-2">
+          <span class="text-sm text-gray-600">{{ user.username }}</span>
+          <button
+            @click="handleLogout"
+            class="text-sm text-red-600 hover:text-red-700 font-medium"
+          >
+            Logout
           </button>
         </div>
+        <div v-else class="flex items-center gap-2">
+          <button
+            @click="showLogin = true"
+            class="text-sm text-amber-600 hover:text-amber-700 font-medium"
+          >
+            Login
+          </button>
+          <button
+            @click="showRegister = true"
+            class="text-sm bg-amber-500 text-white px-3 py-1 rounded hover:bg-amber-600"
+          >
+            Register
+          </button>
+        </div>
+      </div>
+    </div>
 
-        <LoginForm
-          v-if="isLogin"
-          @success="handleAuthSuccess"
-          @register-click="isLogin = false"
-        />
-        <RegisterForm
-          v-else
-          @success="handleRegisterSuccess"
-          @login-click="isLogin = true"
-        />
+    <!-- Login Modal -->
+    <div v-if="showLogin" class="fixed inset-0 z-50 flex items-center justify-center">
+      <div class="fixed inset-0 bg-black bg-opacity-50" @click="showLogin = false"></div>
+      <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 relative z-10">
+        <h2 class="text-lg font-semibold mb-4">Login</h2>
+        <form @submit.prevent="handleLogin" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+            <input
+              v-model="loginForm.username"
+              type="text"
+              required
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <input
+              v-model="loginForm.password"
+              type="password"
+              required
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+          </div>
+          <div class="flex justify-end gap-2">
+            <button
+              type="button"
+              @click="showLogin = false"
+              class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              :disabled="isLoggingIn"
+              class="px-4 py-2 bg-amber-500 text-white rounded-md text-sm font-medium hover:bg-amber-600 disabled:opacity-50"
+            >
+              {{ isLoggingIn ? 'Logging in...' : 'Login' }}
+            </button>
+          </div>
+        </form>
+        <div v-if="loginError" class="mt-4 text-sm text-red-600">
+          {{ loginError }}
+        </div>
+      </div>
+    </div>
 
-        <div class="mt-4 pt-4 border-t text-center text-sm text-gray-500">
-          <p>{{ isLogin ? 'Login' : 'Register' }} to sync your tasks across devices</p>
+    <!-- Register Modal -->
+    <div v-if="showRegister" class="fixed inset-0 z-50 flex items-center justify-center">
+      <div class="fixed inset-0 bg-black bg-opacity-50" @click="showRegister = false"></div>
+      <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-md mx-4 relative z-10">
+        <h2 class="text-lg font-semibold mb-4">Register</h2>
+        <form @submit.prevent="handleRegister" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+            <input
+              v-model="registerForm.username"
+              type="text"
+              required
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input
+              v-model="registerForm.email"
+              type="email"
+              required
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <input
+              v-model="registerForm.password"
+              type="password"
+              required
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+          </div>
+          <div class="flex justify-end gap-2">
+            <button
+              type="button"
+              @click="showRegister = false"
+              class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              :disabled="isRegistering"
+              class="px-4 py-2 bg-amber-500 text-white rounded-md text-sm font-medium hover:bg-amber-600 disabled:opacity-50"
+            >
+              {{ isRegistering ? 'Registering...' : 'Register' }}
+            </button>
+          </div>
+        </form>
+        <div v-if="registerError" class="mt-4 text-sm text-red-600">
+          {{ registerError }}
+        </div>
+        <div v-if="registerSuccess" class="mt-4 text-sm text-green-600">
+          {{ registerSuccess }}
         </div>
       </div>
     </div>
   </nav>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, inject } from 'vue'
-import { XIcon } from 'lucide-vue-next'
-import LoginForm from './LoginForm.vue'
-import RegisterForm from './RegisterForm.vue'
+import type { AuthContext } from '../types'
 
-const auth = inject('auth')
-const { user, logout } = auth
-
-const showLoginModal = ref(false)
-const isLogin = ref(true)
-
-const handleAuthSuccess = () => {
-  showLoginModal.value = false
+const auth = inject<AuthContext>('auth')
+if (!auth) {
+  throw new Error('Auth context not found')
 }
 
-const handleRegisterSuccess = () => {
-  isLogin.value = true
+const { user, login, register, logout } = auth
+
+// State
+const showLogin = ref<boolean>(false)
+const showRegister = ref<boolean>(false)
+const isLoggingIn = ref<boolean>(false)
+const isRegistering = ref<boolean>(false)
+const loginError = ref<string>('')
+const registerError = ref<string>('')
+const registerSuccess = ref<string>('')
+
+// Forms
+const loginForm = ref({
+  username: '',
+  password: ''
+})
+
+const registerForm = ref({
+  username: '',
+  email: '',
+  password: ''
+})
+
+// Methods
+const handleLogin = async (): Promise<void> => {
+  isLoggingIn.value = true
+  loginError.value = ''
+  
+  try {
+    await login(loginForm.value.username, loginForm.value.password)
+    showLogin.value = false
+    loginForm.value = { username: '', password: '' }
+  } catch (error) {
+    loginError.value = (error as Error).message
+  } finally {
+    isLoggingIn.value = false
+  }
+}
+
+const handleRegister = async (): Promise<void> => {
+  isRegistering.value = true
+  registerError.value = ''
+  registerSuccess.value = ''
+  
+  try {
+    await register(registerForm.value.username, registerForm.value.email, registerForm.value.password)
+    registerSuccess.value = 'Registration successful! You can now login.'
+    registerForm.value = { username: '', email: '', password: '' }
+    setTimeout(() => {
+      showRegister.value = false
+      showLogin.value = true
+      registerSuccess.value = ''
+    }, 2000)
+  } catch (error) {
+    registerError.value = (error as Error).message
+  } finally {
+    isRegistering.value = false
+  }
+}
+
+const handleLogout = (): void => {
+  logout()
 }
 </script>

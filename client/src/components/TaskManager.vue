@@ -15,29 +15,24 @@
       <!-- Guest Banner -->
       <div v-if="!user" class="mb-4 bg-amber-50 p-4 rounded-xl">
         <p class="text-amber-800 mb-2">
-          You're using the task manager as a guest. Your tasks are saved on this device only.
+          You're using the task manager as a guest. Your tasks are saved locally.
         </p>
-        <p class="text-amber-800 text-sm">To sync your tasks across devices, please login or register.</p>
+        <p class="text-amber-800 text-sm">Login to sync your tasks across devices.</p>
       </div>
 
-      <!-- Syncing Banner -->
-      <div v-if="isSyncing" class="mb-4 bg-blue-50 p-4 rounded-xl">
+      <!-- Sync Info -->
+      <div v-if="user && (pendingSync.length > 0 || hasUnsyncedChanges)" class="mb-4 bg-blue-50 p-4 rounded-xl">
         <p class="text-blue-800 flex items-center">
-          <svg
-            class="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-600"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path
-              class="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            ></path>
-          </svg>
-          Syncing your tasks...
+          <CloudIcon class="h-4 w-4 mr-2" />
+          {{ pendingSync.length }} tasks pending sync
         </p>
+        <button 
+          v-if="isOnline && !isSyncing"
+          @click="forceSyncTasks"
+          class="mt-2 text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
+        >
+          Sync Now
+        </button>
       </div>
 
       <div class="space-y-4">
@@ -61,7 +56,7 @@
         </button>
 
         <!-- Add New Task Button -->
-        <AddTaskButton v-if="!isAddingTask && !isSyncing" @click="isAddingTask = true" />
+        <AddTaskButton v-if="!isAddingTask" @click="isAddingTask = true" />
 
         <!-- Tasks -->
         <TaskCard
@@ -69,6 +64,7 @@
           :key="task.id"
           :task="task"
           :is-logged-in="!!user"
+          :is-synced="isTaskSynced(task)"
           @status-change="changeTaskStatus"
           @edit="setEditingTask"
           @delete="deleteTask"
@@ -77,7 +73,7 @@
         />
 
         <!-- Empty State -->
-        <div v-if="tasks.length === 0 && !isSyncing" class="text-center p-8 bg-gray-50 rounded-xl border border-gray-200">
+        <div v-if="tasks.length === 0" class="text-center p-8 bg-gray-50 rounded-xl border border-gray-200">
           <p class="text-gray-500">No tasks yet. Add your first task to get started!</p>
         </div>
       </div>
@@ -92,7 +88,7 @@
       />
 
       <!-- Toast Notifications -->
-      <div v-if="toast.show" class="fixed bottom-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg p-4 max-w-sm">
+      <div v-if="toast.show" class="fixed bottom-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg p-4 max-w-sm z-50">
         <div class="flex items-start">
           <div class="flex-1">
             <p class="font-medium text-gray-900">{{ toast.title }}</p>
@@ -107,37 +103,47 @@
   </div>
 </template>
 
-<script setup>
-import { ref, computed, inject, onMounted, watch } from 'vue'
-import { PencilIcon, XIcon } from 'lucide-vue-next'
+<script setup lang="ts">
+import { ref, computed, inject, onMounted, watch, type Ref } from 'vue'
+import { PencilIcon, XIcon, CloudIcon } from 'lucide-vue-next'
 import CategoryCard from './CategoryCard.vue'
 import AddTaskButton from './AddTaskButton.vue'
 import TaskCard from './TaskCard.vue'
 import TaskForm from './TaskForm.vue'
+import { 
+  TaskStatus,
+  type Task, 
+  type ApiTask, 
+  type SyncItem, 
+  type ToastMessage, 
+  type Category, 
+  type AuthContext, 
+  type NetworkContext, 
+  type SyncContext
+} from '../types'
 
-const auth = inject('auth')
+const auth = inject<AuthContext>('auth')!
+const network = inject<NetworkContext>('network')!
+const syncContext = inject<SyncContext>('sync')!
+
 const { user, handleUnauthorized } = auth
+const { isOnline } = network
+const { updateSyncStatus } = syncContext
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
 
-// Task statuses
-const TaskStatus = {
-  TO_DO: 'TO_DO',
-  IN_PROGRESS: 'IN_PROGRESS',
-  COMPLETED: 'COMPLETED',
-  WONT_DO: 'WONT_DO',
-}
-
 // State
-const tasks = ref([])
-const selectedCategory = ref(null)
-const isAddingTask = ref(false)
-const editingTask = ref(null)
-const isSyncing = ref(false)
-const toast = ref({ show: false, title: '', description: '' })
+const tasks = ref<Task[]>([])
+const selectedCategory = ref<TaskStatus | null>(null)
+const isAddingTask = ref<boolean>(false)
+const editingTask = ref<Task | null>(null)
+const isSyncing = ref<boolean>(false)
+const toast = ref<ToastMessage>({ show: false, title: '', description: '' })
+const pendingSync = ref<SyncItem[]>([])
+const hasUnsyncedChanges = ref<boolean>(false)
 
 // Categories configuration
-const categories = [
+const categories: Category[] = [
   {
     status: TaskStatus.IN_PROGRESS,
     title: 'Task in Progress',
@@ -177,13 +183,64 @@ const categories = [
 ]
 
 // Computed
-const filteredTasks = computed(() => {
+const filteredTasks = computed<Task[]>(() => {
   if (selectedCategory.value === null) return tasks.value
   return tasks.value.filter(task => task.status === selectedCategory.value)
 })
 
-// API Functions
-const fetchTasks = async (token) => {
+// Storage keys
+const TASKS_KEY = 'tasks'
+const PENDING_SYNC_KEY = 'pending_sync'
+
+// Local storage helpers
+const saveTasksToStorage = (): void => {
+  localStorage.setItem(TASKS_KEY, JSON.stringify(tasks.value))
+}
+
+const loadTasksFromStorage = (): Task[] => {
+  const stored = localStorage.getItem(TASKS_KEY)
+  return stored ? JSON.parse(stored) : []
+}
+
+const savePendingSyncToStorage = (): void => {
+  localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(pendingSync.value))
+}
+
+const loadPendingSyncFromStorage = (): SyncItem[] => {
+  const stored = localStorage.getItem(PENDING_SYNC_KEY)
+  return stored ? JSON.parse(stored) : []
+}
+
+// Task sync helpers
+const isTaskSynced = (task: Task): boolean => {
+  return !!task._id && !pendingSync.value.some(p => p.localId === task.id)
+}
+
+const markTaskForSync = (task: Task, operation: 'create' | 'update' | 'delete' = 'create'): void => {
+  const syncItem: SyncItem = {
+    localId: task.id,
+    task: { ...task },
+    operation,
+    timestamp: Date.now()
+  }
+  
+  pendingSync.value = pendingSync.value.filter(p => p.localId !== task.id)
+  pendingSync.value.push(syncItem)
+  savePendingSyncToStorage()
+  hasUnsyncedChanges.value = true
+  
+  updateSyncStatus({
+    pendingTasks: pendingSync.value.length,
+    hasUnsyncedChanges: hasUnsyncedChanges.value
+  })
+}
+
+// API Functions with offline support
+const fetchTasks = async (token: string): Promise<Task[]> => {
+  if (!isOnline.value) {
+    throw new Error('Offline')
+  }
+
   const response = await fetch(`${API_URL}/tasks`, {
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -199,11 +256,15 @@ const fetchTasks = async (token) => {
     throw new Error('Failed to fetch tasks')
   }
 
-  const apiTasks = await response.json()
+  const apiTasks: ApiTask[] = await response.json()
   return apiTasks.map(apiTaskToLocalTask)
 }
 
-const createTask = async (task, token) => {
+const createTaskAPI = async (task: Task, token: string): Promise<Task> => {
+  if (!isOnline.value) {
+    throw new Error('Offline')
+  }
+
   const apiTask = localTaskToApiTask(task)
   const response = await fetch(`${API_URL}/tasks`, {
     method: 'POST',
@@ -222,13 +283,17 @@ const createTask = async (task, token) => {
     throw new Error('Failed to create task')
   }
 
-  const createdTask = await response.json()
+  const createdTask: ApiTask = await response.json()
   return apiTaskToLocalTask(createdTask)
 }
 
-const updateTaskAPI = async (task, token) => {
+const updateTaskAPI = async (task: Task, token: string): Promise<Task> => {
+  if (!isOnline.value) {
+    throw new Error('Offline')
+  }
+
   const apiTask = localTaskToApiTask(task)
-  const response = await fetch(`${API_URL}/tasks/${task.id}`, {
+  const response = await fetch(`${API_URL}/tasks/${task._id}`, {
     method: 'PATCH',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -245,11 +310,15 @@ const updateTaskAPI = async (task, token) => {
     throw new Error('Failed to update task')
   }
 
-  const updatedTask = await response.json()
+  const updatedTask: ApiTask = await response.json()
   return apiTaskToLocalTask(updatedTask)
 }
 
-const deleteTaskAPI = async (taskId, token) => {
+const deleteTaskAPI = async (taskId: string, token: string): Promise<void> => {
+  if (!isOnline.value) {
+    throw new Error('Offline')
+  }
+
   const response = await fetch(`${API_URL}/tasks/${taskId}`, {
     method: 'DELETE',
     headers: {
@@ -268,7 +337,7 @@ const deleteTaskAPI = async (taskId, token) => {
 }
 
 // Conversion functions
-const localTaskToApiTask = (task) => {
+const localTaskToApiTask = (task: Task): Partial<ApiTask> => {
   let category = 'none'
   switch (task.status) {
     case TaskStatus.IN_PROGRESS:
@@ -294,8 +363,8 @@ const localTaskToApiTask = (task) => {
   }
 }
 
-const apiTaskToLocalTask = (apiTask) => {
-  let status = TaskStatus.TO_DO
+const apiTaskToLocalTask = (apiTask: ApiTask): Task => {
+  let status: TaskStatus = TaskStatus.TO_DO
   switch (apiTask.category) {
     case 'in-progress':
       status = TaskStatus.IN_PROGRESS
@@ -333,6 +402,7 @@ const apiTaskToLocalTask = (apiTask) => {
 
   return {
     id: apiTask._id || String(Date.now()),
+    _id: apiTask._id,
     title: apiTask.title,
     description: apiTask.description,
     status,
@@ -342,72 +412,113 @@ const apiTaskToLocalTask = (apiTask) => {
 }
 
 // Toast function
-const showToast = (title, description = '', variant = 'default') => {
+const showToast = (title: string, description = '', variant: 'default' | 'success' | 'error' = 'default'): void => {
   toast.value = { show: true, title, description, variant }
   setTimeout(() => {
     toast.value.show = false
   }, 5000)
 }
 
-// Task management functions
-const loadTasks = async () => {
-  try {
-    if (user.value && user.value.token) {
-      const apiTasks = await fetchTasks(user.value.token)
-      tasks.value = apiTasks
-    } else {
-      const savedTasks = localStorage.getItem('tasks')
-      if (savedTasks) {
-        tasks.value = JSON.parse(savedTasks)
-      }
-    }
-  } catch (error) {
-    console.error('Error loading tasks:', error)
-    if (error.message === 'Unauthorized') {
-      handleUnauthorized()
-      showToast('Session Expired', 'Your session has expired. Please login again.')
-    } else {
-      showToast('Error', 'Failed to load tasks. Please try again.')
-    }
+// Sync functions
+const syncTasksWithAPI = async (): Promise<void> => {
+  if (!user.value || !user.value.token || !isOnline.value || isSyncing.value) {
+    return
   }
-}
 
-const syncLocalTasks = async () => {
-  if (user.value && user.value.token) {
-    const localTasks = localStorage.getItem('tasks')
-    if (localTasks) {
+  isSyncing.value = true
+  updateSyncStatus({ isSyncing: true })
+
+  try {
+    const apiTasks = await fetchTasks(user.value.token)
+    const apiTaskIds = new Set(apiTasks.map(t => t._id))
+
+    for (const syncItem of pendingSync.value) {
       try {
-        isSyncing.value = true
-        const parsedTasks = JSON.parse(localTasks)
-        if (parsedTasks.length > 0) {
-          // Create all local tasks on the API
-          const createPromises = parsedTasks.map(task => createTask(task, user.value.token))
-          await Promise.all(createPromises)
-          
-          // Fetch all tasks from the API
-          const syncedTasks = await fetchTasks(user.value.token)
-          tasks.value = syncedTasks
-          
-          // Clear local storage after successful sync
-          localStorage.removeItem('tasks')
-          showToast('Tasks Synced', `Successfully synced ${parsedTasks.length} tasks with your account.`)
+        if (syncItem.operation === 'create') {
+          if (!syncItem.task._id || !apiTaskIds.has(syncItem.task._id)) {
+            const createdTask = await createTaskAPI(syncItem.task, user.value.token)
+            const localTaskIndex = tasks.value.findIndex(t => t.id === syncItem.localId)
+            if (localTaskIndex !== -1) {
+              tasks.value[localTaskIndex]._id = createdTask._id
+              tasks.value[localTaskIndex].id = createdTask.id
+            }
+          }
+        } else if (syncItem.operation === 'update' && syncItem.task._id) {
+          await updateTaskAPI(syncItem.task, user.value.token)
+        } else if (syncItem.operation === 'delete' && syncItem.task._id) {
+          await deleteTaskAPI(syncItem.task._id, user.value.token)
         }
       } catch (error) {
-        console.error('Error syncing tasks:', error)
-        if (error.message === 'Unauthorized') {
+        console.error('Error syncing task:', error)
+        if ((error as Error).message === 'Unauthorized') {
           handleUnauthorized()
-          showToast('Session Expired', 'Your session has expired. Please login again.')
-        } else {
-          showToast('Sync Failed', 'Failed to sync tasks with your account. Please try again.')
+          return
         }
-      } finally {
-        isSyncing.value = false
       }
     }
+
+    pendingSync.value = []
+    savePendingSyncToStorage()
+
+    const mergedTasks = [...apiTasks]
+    
+    for (const localTask of tasks.value) {
+      if (!localTask._id && !mergedTasks.some(t => t.id === localTask.id)) {
+        mergedTasks.push(localTask)
+        markTaskForSync(localTask, 'create')
+      }
+    }
+
+    tasks.value = mergedTasks
+    saveTasksToStorage()
+
+    hasUnsyncedChanges.value = pendingSync.value.length > 0
+    
+    updateSyncStatus({
+      lastSync: Date.now(),
+      pendingTasks: pendingSync.value.length,
+      hasUnsyncedChanges: hasUnsyncedChanges.value
+    })
+
+    if (pendingSync.value.length === 0) {
+      showToast('Sync Complete', 'All tasks have been synchronized.')
+    }
+
+  } catch (error) {
+    console.error('Error syncing tasks:', error)
+    if ((error as Error).message === 'Unauthorized') {
+      handleUnauthorized()
+      showToast('Session Expired', 'Your session has expired. Please login again.')
+    } else if ((error as Error).message !== 'Offline') {
+      showToast('Sync Failed', 'Failed to sync tasks. Will retry automatically.')
+    }
+  } finally {
+    isSyncing.value = false
+    updateSyncStatus({ isSyncing: false })
   }
 }
 
-const addTask = async (task) => {
+const forceSyncTasks = (): void => {
+  syncTasksWithAPI()
+}
+
+// Task management functions
+const loadTasks = async (): Promise<void> => {
+  tasks.value = loadTasksFromStorage()
+  pendingSync.value = loadPendingSyncFromStorage()
+  hasUnsyncedChanges.value = pendingSync.value.length > 0
+
+  updateSyncStatus({
+    pendingTasks: pendingSync.value.length,
+    hasUnsyncedChanges: hasUnsyncedChanges.value
+  })
+
+  if (user.value && isOnline.value) {
+    await syncTasksWithAPI()
+  }
+}
+
+const addTask = async (task: Task): Promise<void> => {
   if (selectedCategory.value) {
     task.status = selectedCategory.value
     switch (selectedCategory.value) {
@@ -426,73 +537,107 @@ const addTask = async (task) => {
     }
   }
 
-  try {
-    if (user.value && user.value.token) {
-      const createdTask = await createTask(task, user.value.token)
-      tasks.value.push(createdTask)
-    } else {
-      tasks.value.push(task)
-    }
-  } catch (error) {
-    console.error('Error adding task:', error)
-    if (error.message === 'Unauthorized') {
-      handleUnauthorized()
-      showToast('Session Expired', 'Your session has expired. Please login again.')
-    } else {
-      showToast('Error', 'Failed to add task. Please try again.')
-    }
-  }
-}
+  tasks.value.push(task)
+  saveTasksToStorage()
 
-const updateTask = async (updatedTask) => {
-  try {
-    if (user.value && user.value.token) {
-      const updated = await updateTaskAPI(updatedTask, user.value.token)
-      const index = tasks.value.findIndex(task => task.id === updated.id)
-      if (index !== -1) {
-        tasks.value[index] = updated
-      }
-    } else {
-      const index = tasks.value.findIndex(task => task.id === updatedTask.id)
-      if (index !== -1) {
-        tasks.value[index] = updatedTask
-      }
-    }
-  } catch (error) {
-    console.error('Error updating task:', error)
-    if (error.message === 'Unauthorized') {
-      handleUnauthorized()
-      showToast('Session Expired', 'Your session has expired. Please login again.')
-    } else {
-      showToast('Error', 'Failed to update task. Please try again.')
-    }
-  }
-}
-
-const deleteTask = async (id) => {
+  if (user.value) {
+    if (isOnline.value) {
       try {
-        // Solo llamar a la API si el usuario está logueado
-        if (user.value && user.value.token) {
-          await deleteTaskAPI(id, user.value.token)
-        }
-        
-        tasks.value = tasks.value.filter(task => task.id !== id)
-        
-        if (!user.value) {
-          localStorage.setItem('tasks', JSON.stringify(tasks.value))
+        const createdTask = await createTaskAPI(task, user.value.token)
+        const taskIndex = tasks.value.findIndex(t => t.id === task.id)
+        if (taskIndex !== -1) {
+          tasks.value[taskIndex] = createdTask
+          saveTasksToStorage()
         }
       } catch (error) {
-        console.error('Error deleting task:', error)
-        if (error.message === 'Unauthorized') {
+        console.error('Error creating task:', error)
+        if ((error as Error).message === 'Unauthorized') {
           handleUnauthorized()
           showToast('Session Expired', 'Your session has expired. Please login again.')
         } else {
-          showToast('Error', 'Failed to delete task. Please try again.')
+          markTaskForSync(task, 'create')
+          showToast('Offline', 'Task saved locally. Will sync when online.')
         }
       }
+    } else {
+      markTaskForSync(task, 'create')
+      showToast('Offline', 'Task saved locally. Will sync when online.')
     }
+  }
+}
 
-const changeTaskStatus = async (id, newStatus) => {
+const updateTask = async (updatedTask: Task): Promise<void> => {
+  const index = tasks.value.findIndex(task => task.id === updatedTask.id)
+  if (index !== -1) {
+    tasks.value[index] = updatedTask
+    saveTasksToStorage()
+  }
+
+  if (user.value) {
+    if (isOnline.value && updatedTask._id) {
+      try {
+        const updated = await updateTaskAPI(updatedTask, user.value.token)
+        const taskIndex = tasks.value.findIndex(t => t.id === updated.id)
+        if (taskIndex !== -1) {
+          tasks.value[taskIndex] = updated
+          saveTasksToStorage()
+        }
+      } catch (error) {
+        console.error('Error updating task:', error)
+        if ((error as Error).message === 'Unauthorized') {
+          handleUnauthorized()
+          showToast('Session Expired', 'Your session has expired. Please login again.')
+        } else {
+          markTaskForSync(updatedTask, 'update')
+          showToast('Offline', 'Changes saved locally. Will sync when online.')
+        }
+      }
+    } else {
+      markTaskForSync(updatedTask, updatedTask._id ? 'update' : 'create')
+      if (!isOnline.value) {
+        showToast('Offline', 'Changes saved locally. Will sync when online.')
+      }
+    }
+  }
+}
+
+const deleteTask = async (id: string): Promise<void> => {
+  const taskToDelete = tasks.value.find(task => task.id === id)
+  if (!taskToDelete) return
+
+  tasks.value = tasks.value.filter(task => task.id !== id)
+  saveTasksToStorage()
+
+  pendingSync.value = pendingSync.value.filter(p => p.localId !== id)
+  savePendingSyncToStorage()
+
+  if (user.value && taskToDelete._id) {
+    if (isOnline.value) {
+      try {
+        await deleteTaskAPI(taskToDelete._id, user.value.token)
+      } catch (error) {
+        console.error('Error deleting task:', error)
+        if ((error as Error).message === 'Unauthorized') {
+          handleUnauthorized()
+          showToast('Session Expired', 'Your session has expired. Please login again.')
+        } else {
+          markTaskForSync(taskToDelete, 'delete')
+          showToast('Offline', 'Deletion saved locally. Will sync when online.')
+        }
+      }
+    } else {
+      markTaskForSync(taskToDelete, 'delete')
+      showToast('Offline', 'Deletion saved locally. Will sync when online.')
+    }
+  }
+
+  updateSyncStatus({
+    pendingTasks: pendingSync.value.length,
+    hasUnsyncedChanges: pendingSync.value.length > 0
+  })
+}
+
+const changeTaskStatus = async (id: string, newStatus: TaskStatus): Promise<void> => {
   const taskToUpdate = tasks.value.find(task => task.id === id)
   if (!taskToUpdate) return
 
@@ -500,31 +645,29 @@ const changeTaskStatus = async (id, newStatus) => {
   await updateTask(updatedTask)
 }
 
-const toggleTaskPublic = async (id, isPublic) => {
+const toggleTaskPublic = async (id: string, isPublic: boolean): Promise<void> => {
   const taskToUpdate = tasks.value.find(task => task.id === id)
   if (!taskToUpdate) return
 
   const updatedTask = { ...taskToUpdate, isPublic }
   await updateTask(updatedTask)
 
-  if (user.value) {
-    showToast(
-      isPublic ? 'Task made public' : 'Task made private',
-      isPublic ? 'This task is now visible to others.' : 'This task is now private.'
-    )
-  }
+  showToast(
+    isPublic ? 'Task made public' : 'Task made private',
+    isPublic ? 'This task is now visible to others.' : 'This task is now private.'
+  )
 }
 
 // UI functions
-const setSelectedCategory = (status) => {
+const setSelectedCategory = (status: TaskStatus | null): void => {
   selectedCategory.value = selectedCategory.value === status ? null : status
 }
 
-const setEditingTask = (task) => {
+const setEditingTask = (task: Task): void => {
   editingTask.value = task
 }
 
-const handleTaskSubmit = async (task) => {
+const handleTaskSubmit = async (task: Task): Promise<void> => {
   if (editingTask.value) {
     await updateTask(task)
     editingTask.value = null
@@ -534,28 +677,41 @@ const handleTaskSubmit = async (task) => {
   }
 }
 
-const handleTaskCancel = () => {
+const handleTaskCancel = (): void => {
   isAddingTask.value = false
   editingTask.value = null
 }
 
 // Watchers
-watch(user, (newUser, oldUser) => {
+watch(user, async (newUser, oldUser) => {
   if (newUser && !oldUser) {
-    // User just logged in
-    loadTasks()
-    syncLocalTasks()
-  } else if (!newUser && oldUser) {
-    // User just logged out
-    tasks.value = []
+    await syncTasksWithAPI()
   }
 })
 
-watch(tasks, (newTasks) => {
-  if (!user.value && newTasks.length > 0) {
-    localStorage.setItem('tasks', JSON.stringify(newTasks))
+watch(isOnline, async (online) => {
+  if (online && user.value && pendingSync.value.length > 0) {
+    await syncTasksWithAPI()
   }
-}, { deep: true })
+})
+
+// Auto-sync every 5 minutes when online and logged in
+let syncInterval: number | null = null
+
+watch([user, isOnline], ([newUser, online]) => {
+  if (syncInterval) {
+    clearInterval(syncInterval)
+    syncInterval = null
+  }
+
+  if (newUser && online) {
+    syncInterval = setInterval(() => {
+      if (!isSyncing.value) {
+        syncTasksWithAPI()
+      }
+    }, 5 * 60 * 1000) // 5 minutes
+  }
+})
 
 // Lifecycle
 onMounted(() => {

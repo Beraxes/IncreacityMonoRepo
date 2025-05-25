@@ -1,5 +1,12 @@
 <template>
   <div :class="['rounded-xl p-4 relative', getCardStyle()]" @click.stop>
+    <!-- Sync Status Indicator -->
+    <div class="absolute top-2 left-2 flex items-center gap-1">
+      <div v-if="!isSynced" class="h-2 w-2 rounded-full bg-amber-400" title="Pending sync"></div>
+      <div v-else-if="task._id" class="h-2 w-2 rounded-full bg-green-400" title="Synced"></div>
+      <div v-else class="h-2 w-2 rounded-full bg-gray-400" title="Local only"></div>
+    </div>
+
     <!-- Public/Private Toggle -->
     <button
       v-if="isLoggedIn"
@@ -11,7 +18,7 @@
       <LockIcon v-else class="h-3.5 w-3.5 text-gray-600" />
     </button>
 
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between mt-4">
       <div class="flex items-center gap-3 flex-1">
         <!-- Task Icon -->
         <div class="h-8 w-8 rounded-md bg-white flex items-center justify-center">
@@ -121,7 +128,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import {
   ClockIcon,
@@ -137,32 +144,36 @@ import {
   GlobeIcon,
   LockIcon,
 } from 'lucide-vue-next'
+import { TaskStatus, type Task } from '../types'
 
-const props = defineProps({
-  task: Object,
-  isLoggedIn: Boolean,
-})
-
-const emit = defineEmits(['statusChange', 'edit', 'delete', 'update', 'togglePublic'])
-
-const TaskStatus = {
-  TO_DO: 'TO_DO',
-  IN_PROGRESS: 'IN_PROGRESS',
-  COMPLETED: 'COMPLETED',
-  WONT_DO: 'WONT_DO',
+interface Props {
+  task: Task
+  isLoggedIn: boolean
+  isSynced: boolean
 }
 
+interface Emits {
+  (e: 'statusChange', id: string, status: TaskStatus): void
+  (e: 'edit', task: Task): void
+  (e: 'delete', id: string): void
+  (e: 'update', task: Task): void
+  (e: 'togglePublic', id: string, isPublic: boolean): void
+}
+
+const props = defineProps<Props>()
+const emit = defineEmits<Emits>()
+
 // State
-const isEditing = ref(false)
-const editTitle = ref(props.task.title)
-const editDescription = ref(props.task.description)
-const showDeleteConfirm = ref(false)
-const showCategoryMenu = ref(false)
-const isPublic = ref(props.task.isPublic || false)
+const isEditing = ref<boolean>(false)
+const editTitle = ref<string>(props.task.title)
+const editDescription = ref<string>(props.task.description)
+const showDeleteConfirm = ref<boolean>(false)
+const showCategoryMenu = ref<boolean>(false)
+const isPublic = ref<boolean>(props.task.isPublic || false)
 
 // Refs
-const statusButton = ref(null)
-const categoryMenu = ref(null)
+const statusButton = ref<HTMLButtonElement | null>(null)
+const categoryMenu = ref<HTMLDivElement | null>(null)
 
 // Status options for the dropdown
 const statusOptions = [
@@ -193,7 +204,7 @@ const statusOptions = [
 ]
 
 // Methods
-const getCardStyle = () => {
+const getCardStyle = (): string => {
   switch (props.task.status) {
     case TaskStatus.IN_PROGRESS:
       return 'bg-amber-100'
@@ -223,7 +234,7 @@ const getStatusIcon = () => {
   }
 }
 
-const getStatusIconClass = () => {
+const getStatusIconClass = (): string => {
   switch (props.task.status) {
     case TaskStatus.IN_PROGRESS:
       return 'h-5 w-5 text-amber-600'
@@ -238,7 +249,7 @@ const getStatusIconClass = () => {
   }
 }
 
-const getActionButtonStyle = () => {
+const getActionButtonStyle = (): string => {
   switch (props.task.status) {
     case TaskStatus.IN_PROGRESS:
       return 'bg-amber-400'
@@ -268,7 +279,7 @@ const getActionIcon = () => {
   }
 }
 
-const getActionIconClass = () => {
+const getActionIconClass = (): string => {
   switch (props.task.status) {
     case TaskStatus.TO_DO:
       return 'text-gray-600'
@@ -277,7 +288,7 @@ const getActionIconClass = () => {
   }
 }
 
-const handleSaveEdit = () => {
+const handleSaveEdit = (): void => {
   if (editTitle.value.trim()) {
     emit('update', {
       ...props.task,
@@ -288,36 +299,37 @@ const handleSaveEdit = () => {
   }
 }
 
-const handleCancelEdit = () => {
+const handleCancelEdit = (): void => {
   editTitle.value = props.task.title
   editDescription.value = props.task.description
   isEditing.value = false
 }
 
-const handleStatusChange = (newStatus) => {
+const handleStatusChange = (newStatus: TaskStatus): void => {
   emit('statusChange', props.task.id, newStatus)
   showCategoryMenu.value = false
 }
 
-const handleDelete = () => {
+const handleDelete = (): void => {
   emit('delete', props.task.id)
   showDeleteConfirm.value = false
 }
 
-const handleTogglePublic = () => {
+const handleTogglePublic = (): void => {
   const newIsPublic = !isPublic.value
   isPublic.value = newIsPublic
   emit('togglePublic', props.task.id, newIsPublic)
 }
 
 // Click outside handler
-const handleClickOutside = (event) => {
+const handleClickOutside = (event: MouseEvent): void => {
+  const target = event.target as Node
   if (
     showCategoryMenu.value &&
     categoryMenu.value &&
     statusButton.value &&
-    !categoryMenu.value.contains(event.target) &&
-    !statusButton.value.contains(event.target)
+    !categoryMenu.value.contains(target) &&
+    !statusButton.value.contains(target)
   ) {
     showCategoryMenu.value = false
   }
