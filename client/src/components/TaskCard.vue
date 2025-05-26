@@ -76,17 +76,20 @@
           <div
             v-if="showCategoryMenu"
             ref="categoryMenu"
-            class="absolute right-0 mt-2 w-48 rounded-md bg-white shadow-lg z-20 border border-gray-200"
+            class="absolute right-0 mt-2 w-48 rounded-md bg-white shadow-lg z-20 border border-gray-200 max-h-60 overflow-y-auto"
+            :class="getDropdownPosition()"
           >
             <div class="py-1">
               <button
                 v-for="status in statusOptions"
                 :key="status.value"
                 @click.stop="handleStatusChange(status.value)"
-                class="flex items-center gap-2 w-full px-4 py-2 text-left text-sm hover:bg-gray-100"
+                class="flex items-center gap-2 w-full px-4 py-2 text-left text-sm hover:bg-gray-100 transition-colors"
+                :class="{ 'bg-gray-50': status.value === task.status }"
               >
                 <component :is="status.icon" :class="['h-4 w-4', status.iconClass]" />
                 {{ status.label }}
+                <CheckIcon v-if="status.value === task.status" class="h-3 w-3 text-green-600 ml-auto" />
               </button>
             </div>
           </div>
@@ -143,6 +146,7 @@ import {
   Trash2Icon,
   GlobeIcon,
   LockIcon,
+  CheckIcon,
 } from 'lucide-vue-next'
 import { TaskStatus, type Task } from '../types'
 
@@ -333,6 +337,21 @@ const handleClickOutside = (event: MouseEvent): void => {
   ) {
     showCategoryMenu.value = false
   }
+}
+
+const getDropdownPosition = (): string => {
+  if (!statusButton.value) return 'mt-2'
+  
+  const buttonRect = statusButton.value.getBoundingClientRect()
+  const viewportHeight = window.innerHeight
+  const dropdownHeight = 200 // Approximate height of dropdown
+  
+  // If there's not enough space below, position above
+  if (buttonRect.bottom + dropdownHeight > viewportHeight) {
+    return 'bottom-full mb-2'
+  }
+  
+  return 'mt-2'
 }
 
 onMounted(() => {

@@ -1,3 +1,5 @@
+"use client"
+
 import { ref, watch } from "vue"
 import { tasksAPI } from "../services/api"
 import { taskConverter } from "../utils/taskConverter"
@@ -55,29 +57,61 @@ export function useTasks() {
     updateSyncStatus({ isSyncing: true })
 
     try {
+      console.log("Starting sync process...")
+
+      // First, get all tasks from server
       const apiTasks = await tasksAPI.fetchTasks(user.value.token)
-      const localTasks = apiTasks.map(taskConverter.apiTaskToLocalTask)
+      const serverTasks = apiTasks.map(taskConverter.apiTaskToLocalTask)
       const apiTaskIds = new Set(apiTasks.map((t) => t._id))
 
+      console.log(`Found ${apiTasks.length} tasks on server`)
+      console.log(`Found ${pendingSync.value.length} pending sync items`)
+
       // Process pending sync items
+      const syncedTaskIds = new Set<string>()
+
       for (const syncItem of pendingSync.value) {
         try {
+          console.log(`Processing sync item: ${syncItem.operation} for task ${syncItem.localId}`)
+
           if (syncItem.operation === "create") {
             if (!syncItem.task._id || !apiTaskIds.has(syncItem.task._id)) {
               const apiTask = taskConverter.localTaskToApiTask(syncItem.task)
               const createdTask = await tasksAPI.createTask(apiTask, user.value.token)
+              const convertedTask = taskConverter.apiTaskToLocalTask(createdTask)
+
+              // Update the local task with server data
               const localTaskIndex = tasks.value.findIndex((t) => t.id === syncItem.localId)
               if (localTaskIndex !== -1) {
-                const convertedTask = taskConverter.apiTaskToLocalTask(createdTask)
-                tasks.value[localTaskIndex]._id = convertedTask._id
-                tasks.value[localTaskIndex].id = convertedTask.id
+                console.log(`Updating local task ${syncItem.localId} with server data`)
+                tasks.value[localTaskIndex] = {
+                  ...tasks.value[localTaskIndex],
+                  _id: convertedTask._id,
+                  id: convertedTask.id || syncItem.localId, // Keep local ID if server doesn't provide one
+                }
               }
+
+              syncedTaskIds.add(syncItem.localId)
             }
           } else if (syncItem.operation === "update" && syncItem.task._id) {
             const apiTask = taskConverter.localTaskToApiTask(syncItem.task)
-            await tasksAPI.updateTask(syncItem.task._id, apiTask, user.value.token)
+            const updatedTask = await tasksAPI.updateTask(syncItem.task._id, apiTask, user.value.token)
+            const convertedTask = taskConverter.apiTaskToLocalTask(updatedTask)
+
+            // Update the local task with server data
+            const localTaskIndex = tasks.value.findIndex((t) => t.id === syncItem.localId)
+            if (localTaskIndex !== -1) {
+              console.log(`Updating local task ${syncItem.localId} after server update`)
+              tasks.value[localTaskIndex] = {
+                ...convertedTask,
+                id: syncItem.localId, // Preserve local ID
+              }
+            }
+
+            syncedTaskIds.add(syncItem.localId)
           } else if (syncItem.operation === "delete" && syncItem.task._id) {
             await tasksAPI.deleteTask(syncItem.task._id, user.value.token)
+            syncedTaskIds.add(syncItem.localId)
           }
         } catch (error) {
           console.error("Error syncing task:", error)
@@ -88,20 +122,26 @@ export function useTasks() {
         }
       }
 
-      // Clear sync queue
-      pendingSync.value = []
+      // Remove successfully synced items from pending queue
+      pendingSync.value = pendingSync.value.filter((item) => !syncedTaskIds.has(item.localId))
       storage.savePendingSync(pendingSync.value)
 
-      // Merge tasks
-      const mergedTasks = [...localTasks]
+      // Merge server tasks with local tasks
+      const mergedTasks = [...tasks.value]
 
-      for (const localTask of tasks.value) {
-        if (!localTask._id && !mergedTasks.some((t) => t.id === localTask.id)) {
-          mergedTasks.push(localTask)
-          markTaskForSync(localTask, "create")
+      // Add any new tasks from server that we don't have locally
+      for (const serverTask of serverTasks) {
+        const existsLocally = mergedTasks.some(
+          (localTask) => localTask._id === serverTask._id || localTask.id === serverTask.id,
+        )
+
+        if (!existsLocally) {
+          console.log(`Adding new task from server: ${serverTask.title}`)
+          mergedTasks.push(serverTask)
         }
       }
 
+      // Update tasks and save to storage
       tasks.value = mergedTasks
       storage.saveTasks(tasks.value)
 
@@ -113,8 +153,10 @@ export function useTasks() {
         hasUnsyncedChanges: hasUnsyncedChanges.value,
       })
 
-      if (pendingSync.value.length === 0) {
-        showToast("Sync Complete", "All tasks have been synchronized.")
+      console.log(`Sync completed. ${syncedTaskIds.size} tasks synced, ${pendingSync.value.length} pending`)
+
+      if (syncedTaskIds.size > 0) {
+        showToast("Sync Complete", `${syncedTaskIds.size} task(s) synchronized successfully.`)
       }
     } catch (error) {
       console.error("Error syncing tasks:", error)
@@ -132,9 +174,12 @@ export function useTasks() {
 
   // Task operations
   const loadTasks = async (): Promise<void> => {
+    console.log("Loading tasks from storage...")
     tasks.value = storage.loadTasks()
     pendingSync.value = storage.loadPendingSync()
     hasUnsyncedChanges.value = pendingSync.value.length > 0
+
+    console.log(`Loaded ${tasks.value.length} tasks, ${pendingSync.value.length} pending sync`)
 
     updateSyncStatus({
       pendingTasks: pendingSync.value.length,
@@ -142,11 +187,13 @@ export function useTasks() {
     })
 
     if (user.value && isOnline.value) {
+      console.log("User is logged in and online, starting sync...")
       await syncTasksWithAPI()
     }
   }
 
   const addTask = async (task: Task): Promise<void> => {
+    console.log(`Adding task: ${task.title}`)
     tasks.value.push(task)
     storage.saveTasks(tasks.value)
 
@@ -159,8 +206,12 @@ export function useTasks() {
 
           const taskIndex = tasks.value.findIndex((t) => t.id === task.id)
           if (taskIndex !== -1) {
-            tasks.value[taskIndex] = convertedTask
+            tasks.value[taskIndex] = {
+              ...convertedTask,
+              id: task.id, // Preserve local ID
+            }
             storage.saveTasks(tasks.value)
+            console.log(`Task ${task.id} created on server and updated locally`)
           }
         } catch (error) {
           console.error("Error creating task:", error)
@@ -180,6 +231,7 @@ export function useTasks() {
   }
 
   const updateTask = async (updatedTask: Task): Promise<void> => {
+    console.log(`Updating task: ${updatedTask.title}`)
     const index = tasks.value.findIndex((task) => task.id === updatedTask.id)
     if (index !== -1) {
       tasks.value[index] = updatedTask
@@ -193,10 +245,14 @@ export function useTasks() {
           const updated = await tasksAPI.updateTask(updatedTask._id, apiTask, user.value.token)
           const convertedTask = taskConverter.apiTaskToLocalTask(updated)
 
-          const taskIndex = tasks.value.findIndex((t) => t.id === convertedTask.id)
+          const taskIndex = tasks.value.findIndex((t) => t.id === updatedTask.id)
           if (taskIndex !== -1) {
-            tasks.value[taskIndex] = convertedTask
+            tasks.value[taskIndex] = {
+              ...convertedTask,
+              id: updatedTask.id, // Preserve local ID
+            }
             storage.saveTasks(tasks.value)
+            console.log(`Task ${updatedTask.id} updated on server`)
           }
         } catch (error) {
           console.error("Error updating task:", error)
@@ -218,6 +274,7 @@ export function useTasks() {
   }
 
   const deleteTask = async (id: string): Promise<void> => {
+    console.log(`Deleting task: ${id}`)
     const taskToDelete = tasks.value.find((task) => task.id === id)
     if (!taskToDelete) return
 
@@ -231,6 +288,7 @@ export function useTasks() {
       if (isOnline.value) {
         try {
           await tasksAPI.deleteTask(taskToDelete._id, user.value.token)
+          console.log(`Task ${id} deleted from server`)
         } catch (error) {
           console.error("Error deleting task:", error)
           if ((error as Error).message === "TokenExpired") {
@@ -287,6 +345,7 @@ export function useTasks() {
       syncInterval = setInterval(
         () => {
           if (!isSyncing.value) {
+            console.log("Auto-sync triggered")
             syncTasksWithAPI()
           }
         },
@@ -297,17 +356,20 @@ export function useTasks() {
 
   watch(user, async (newUser, oldUser) => {
     if (newUser && !oldUser) {
+      console.log("User logged in, starting sync...")
       await syncTasksWithAPI()
     }
   })
 
-  watch(isOnline, async (online) => {
-    if (online && user.value && pendingSync.value.length > 0) {
+  watch(isOnline, async (online, wasOnline) => {
+    if (online && !wasOnline && user.value && pendingSync.value.length > 0) {
+      console.log("Came back online with pending sync items, starting sync...")
       await syncTasksWithAPI()
     }
   })
 
   const clearTasksData = (): void => {
+    console.log("Clearing tasks data...")
     tasks.value = []
     pendingSync.value = []
     hasUnsyncedChanges.value = false
@@ -330,7 +392,6 @@ export function useTasks() {
   watch(user, (newUser, oldUser) => {
     if (oldUser && !newUser) {
       // User logged out, check if we should clear data
-      // We'll use a flag in localStorage to determine if it was manual
       const wasManualLogout = localStorage.getItem("manual-logout") === "true"
       if (wasManualLogout) {
         clearTasksData()
@@ -338,6 +399,7 @@ export function useTasks() {
       }
     } else if (newUser && !oldUser) {
       // User logged in
+      console.log("User logged in, starting sync...")
       syncTasksWithAPI()
     }
   })

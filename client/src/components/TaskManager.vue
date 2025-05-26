@@ -7,7 +7,6 @@
         </div>
         <h1 class="text-2xl font-bold text-gray-900">
           My Task Board
-          <PencilIcon class="h-4 w-4 inline-block ml-1" />
         </h1>
       </div>
       <p class="mb-6 text-gray-600">Tasks to keep organised</p>
