@@ -1,5 +1,3 @@
-"use client"
-
 import { ref, watch } from "vue"
 import { tasksAPI } from "../services/api"
 import { taskConverter } from "../utils/taskConverter"

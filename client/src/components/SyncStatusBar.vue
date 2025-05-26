@@ -16,7 +16,6 @@
 import { computed, inject, ref } from 'vue'
 import { 
   CheckCircleIcon, 
-  CloudIcon, 
   WifiOffIcon, 
   RefreshCwIcon,
   AlertCircleIcon 
