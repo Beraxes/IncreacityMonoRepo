@@ -246,3 +246,68 @@ interface SyncItem {
 Esta implementación garantiza que los usuarios nunca pierdan su trabajo y siempre conozcan el estado de sus datos, creando una experiencia fiable y transparente enfocada en el modo offline. 🚀
 
 [Volver](README.md)
+
+# Arquitectura de Sincronización - Vue PWA Task Manager - Nestjs - Mongodb
+
+```mermaid
+graph TD
+    A[👤 Usuario Interactúa] --> B{🌐 ¿Online?}
+    
+    %% Flujo Online
+    B -->|✅ Sí| C[📡 API Request + JWT]
+    C --> D[🔒 JWT Guard]
+    D --> E{🔑 Token Válido?}
+    E -->|✅ Sí| F[⚡ Endpoints API]
+    E -->|❌ No| G[🚫 401 → Logout]
+    
+    %% Flujo Offline
+    B -->|❌ No| H[💾 localStorage]
+    H --> I[📋 Cola pendingSync]
+    I --> J[🟡 Indicador Amarillo]
+    
+    %% Endpoints
+    F --> K[📝 Tasks CRUD]
+    F --> L[👥 Users Auth]
+    
+    %% Servicios Backend
+    K --> M[🔧 TaskService]
+    L --> N[🔧 UserService]
+    M --> O[🗄️ Base de Datos]
+    N --> O
+    
+    %% Detección de Red
+    P[📶 useNetwork.ts] --> Q{🔄 ¿Conexión Restaurada?}
+    Q -->|✅ Sí| R[🔄 syncTasksWithAPI]
+    R --> S[📤 Procesar Cola]
+    S --> C
+    
+    %% Componentes UI
+    T[🎨 TaskCard.vue] --> U[📊 SyncStatusBar.vue]
+    U --> V[🎯 Indicadores Visuales]
+    
+    %% Estados Visuales
+    J --> V
+    R --> W[🔵 Sincronizando...]
+    W --> X[🟢 Completado]
+    
+    %% Almacenamiento
+    H --> Y[🔑 TASKS_KEY]
+    I --> Z[🔑 PENDING_SYNC_KEY]
+    
+    %% Estructura SyncItem
+    I --> AA[📦 SyncItem:<br/>• localId<br/>• task<br/>• operation<br/>• timestamp]
+    
+    %% Estilos
+    classDef user fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    classDef online fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef offline fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    classDef backend fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef storage fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef ui fill:#e0f2f1,stroke:#00695c,stroke-width:2px
+    
+    class A user
+    class B,C,D,E,F,P,Q,R,S online
+    class H,I,J,Y,Z,AA offline
+    class G,K,L,M,N,O backend
+    class T,U,V,W,X ui
+    
