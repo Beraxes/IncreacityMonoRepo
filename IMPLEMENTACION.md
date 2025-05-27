@@ -250,64 +250,108 @@ Esta implementación garantiza que los usuarios nunca pierdan su trabajo y siemp
 # Arquitectura de Sincronización - Vue PWA Task Manager - Nestjs - Mongodb
 
 ```mermaid
-graph TD
-    A[👤 Usuario Interactúa] --> B{🌐 ¿Online?}
+graph TB
+    subgraph "Vue PWA Frontend"
+        A[Usuario Interactúa] --> B{¿Online?}
+        
+        subgraph "Modo Online"
+            B -->|Sí| C[API Request]
+            C --> D[Headers: Bearer JWT]
+            D --> E[Axios/Fetch]
+        end
+        
+        subgraph "Modo Offline"  
+            B -->|No| F[Guardar en localStorage]
+            F --> G[Encolar en pendingSync]
+            G --> H[Mostrar indicador amarillo]
+        end
+        
+        subgraph "Detección de Red"
+            I[useNetwork.ts] --> J[navigator.onLine]
+            J --> K{¿Conexión restaurada?}
+            K -->|Sí| L[syncTasksWithAPI]
+            L --> M[Procesar cola pendingSync]
+        end
+        
+        subgraph "Almacenamiento Local"
+            N[localStorage]
+            O[TASKS_KEY]
+            P[PENDING_SYNC_KEY]
+            Q[SyncItem: localId, task, operation, timestamp]
+        end
+        
+        subgraph "Componentes UI"
+            R[TaskCard.vue]
+            S[SyncStatusBar.vue]
+            T[Indicadores de estado por color]
+        end
+    end
     
-    %% Flujo Online
-    B -->|✅ Sí| C[📡 API Request + JWT]
-    C --> D[🔒 JWT Guard]
-    D --> E{🔑 Token Válido?}
-    E -->|✅ Sí| F[⚡ Endpoints API]
-    E -->|❌ No| G[🚫 401 → Logout]
+    subgraph "Backend NestJS"
+        U[JWT Guard] --> V{¿Token válido?}
+        
+        subgraph "Endpoints"
+            W[POST /users/register]
+            X[POST /users/login]
+            Y[GET /tasks]
+            Z[POST /tasks]
+            AA[PATCH /tasks/:id]
+            BB[DELETE /tasks/:id]
+            CC[GET /tasks/:id]
+        end
+        
+        subgraph "Servicios"
+            DD[TaskService]
+            EE[UserService]
+        end
+        
+        FF[Base de Datos]
+    end
     
-    %% Flujo Offline
-    B -->|❌ No| H[💾 localStorage]
-    H --> I[📋 Cola pendingSync]
-    I --> J[🟡 Indicador Amarillo]
+    %% Conexiones principales
+    E --> U
+    U --> V
+    V -->|Sí| Y
+    V -->|Sí| Z
+    V -->|Sí| AA
+    V -->|Sí| BB
+    V -->|Sí| CC
+    V -->|No| GG[401 Unauthorized]
     
-    %% Endpoints
-    F --> K[📝 Tasks CRUD]
-    F --> L[👥 Users Auth]
+    Y --> DD
+    Z --> DD
+    AA --> DD
+    BB --> DD
+    CC --> DD
     
-    %% Servicios Backend
-    K --> M[🔧 TaskService]
-    L --> N[🔧 UserService]
-    M --> O[🗄️ Base de Datos]
-    N --> O
+    W --> EE
+    X --> EE
     
-    %% Detección de Red
-    P[📶 useNetwork.ts] --> Q{🔄 ¿Conexión Restaurada?}
-    Q -->|✅ Sí| R[🔄 syncTasksWithAPI]
-    R --> S[📤 Procesar Cola]
-    S --> C
+    DD --> FF
+    EE --> FF
     
-    %% Componentes UI
-    T[🎨 TaskCard.vue] --> U[📊 SyncStatusBar.vue]
-    U --> V[🎯 Indicadores Visuales]
+    %% Flujo de sincronización
+    M --> E
+    F --> N
+    G --> N
     
-    %% Estados Visuales
-    J --> V
-    R --> W[🔵 Sincronizando...]
-    W --> X[🟢 Completado]
+    %% Manejo de errores
+    GG --> HH[handleUnauthorized]
+    HH --> II[Logout]
     
-    %% Almacenamiento
-    H --> Y[🔑 TASKS_KEY]
-    I --> Z[🔑 PENDING_SYNC_KEY]
-    
-    %% Estructura SyncItem
-    I --> AA[📦 SyncItem:<br/>• localId<br/>• task<br/>• operation<br/>• timestamp]
+    %% Indicadores visuales
+    H --> T
+    L --> JJ[Indicador azul: Sincronizando]
+    JJ --> KK[Indicador verde: Completado]
     
     %% Estilos
-    classDef user fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
-    classDef online fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
-    classDef offline fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
-    classDef backend fill:#fce4ec,stroke:#c2185b,stroke-width:2px
-    classDef storage fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
-    classDef ui fill:#e0f2f1,stroke:#00695c,stroke-width:2px
+    classDef frontend fill:#42b883,stroke:#333,stroke-width:2px,color:#fff
+    classDef backend fill:#e0234e,stroke:#333,stroke-width:2px,color:#fff  
+    classDef database fill:#336791,stroke:#333,stroke-width:2px,color:#fff
+    classDef storage fill:#ff9500,stroke:#333,stroke-width:2px,color:#fff
     
-    class A user
-    class B,C,D,E,F,P,Q,R,S online
-    class H,I,J,Y,Z,AA offline
-    class G,K,L,M,N,O backend
-    class T,U,V,W,X ui
+    class A,B,C,D,E,F,G,H,I,J,K,L,M,R,S,T frontend
+    class U,V,W,X,Y,Z,AA,BB,CC,DD,EE backend
+    class FF database
+    class N,O,P,Q storage
     
