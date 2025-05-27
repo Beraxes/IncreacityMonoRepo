@@ -71,7 +71,8 @@ Este proyecto incluyen:
 - **Backend (API):** 
 	- **NestJS:** La decisión de utilizar NestJS se fundamentó en su arquitectura robusta y su enfoque en los principios SOLID (Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion). Al ser un framework progresivo para Node.js basado en TypeScript, facilita la creación de aplicaciones escalables y mantenibles, promoviendo un código limpio y bien estructurado.
 	- **MongoDB:** Se seleccionó como base de datos NoSQL por su flexibilidad y escalabilidad, lo que permite adaptarse a las necesidades cambiantes del proyecto. Su integración con JavaScript y su modelo de documentos se complementan bien con el entorno de desarrollo.
-
+    
+**Explicacion extensa de online/offline:**[Implementacion](IMPLEMENTACION.md)
 ## Primeros Pasos
 
 ### Requisitos Previos
