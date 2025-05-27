@@ -45,6 +45,25 @@ export function useTasks() {
     })
   }
 
+  // Mark all local tasks without server ID for sync when user logs in
+  const markLocalTasksForSync = (): void => {
+    console.log("Marking local tasks for sync after login...")
+    let markedCount = 0
+
+    for (const task of tasks.value) {
+      // If task doesn't have server ID and isn't already in sync queue
+      if (!task._id && !pendingSync.value.some((p) => p.localId === task.id)) {
+        markTaskForSync(task, "create")
+        markedCount++
+      }
+    }
+
+    if (markedCount > 0) {
+      console.log(`Marked ${markedCount} local tasks for sync`)
+      showToast("Tasks Queued", `${markedCount} local task(s) queued for sync`)
+    }
+  }
+
   // API operations
   const syncTasksWithAPI = async (): Promise<void> => {
     if (!user.value || !user.value.token || !isOnline.value || isSyncing.value) {
@@ -354,8 +373,14 @@ export function useTasks() {
 
   watch(user, async (newUser, oldUser) => {
     if (newUser && !oldUser) {
-      console.log("User logged in, starting sync...")
-      await syncTasksWithAPI()
+      console.log("User logged in, marking local tasks for sync...")
+      // Mark all local tasks for sync when user logs in
+      markLocalTasksForSync()
+
+      // Then start sync process
+      if (isOnline.value) {
+        await syncTasksWithAPI()
+      }
     }
   })
 
