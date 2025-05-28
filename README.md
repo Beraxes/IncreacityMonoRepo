@@ -152,6 +152,29 @@ En una nueva consola
 cd client
 yarn
 ```
+
+### 🐳 Instalación Fácil (Docker)
+
+Si deseas una instalación rápida utilizando Docker, sigue estos pasos:
+
+1. **Clona el repositorio:**
+   ```sh
+   git clone https://github.com/Beraxes/IncreacityMonoRepo
+   cd IncreacityMonoRepo
+   ```
+
+2. **Copia el archivo de entorno:**
+   ```sh
+   cp .env.example .env
+   ```
+
+3. **Construye y despliega los contenedores:**
+   ```sh
+   docker compose build && docker compose up -d
+   ```
+
+> Esto levantará automáticamente la API y el cliente, listos para usarse en modo producción/desarrollo (según esté configurado).
+
 ### Configuración de Entorno
 
 Tanto el proyecto del servidor (`api`) como el del cliente (`client`) requieren variables de entorno para funcionar correctamente. Cada uno incluye un archivo `.env.example` con los valores de ejemplo.
