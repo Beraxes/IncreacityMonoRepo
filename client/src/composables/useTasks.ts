@@ -84,6 +84,14 @@ export function useTasks() {
       console.log(`Found ${apiTasks.length} tasks on server`)
       console.log(`Found ${pendingSync.value.length} pending sync items`)
 
+      // Get tasks marked for deletion to exclude them from merge
+      const tasksMarkedForDeletion = new Set(
+        pendingSync.value
+          .filter((item) => item.operation === "delete")
+          .map((item) => item.task._id)
+          .filter(Boolean),
+      )
+
       // Process pending sync items
       const syncedTaskIds = new Set<string>()
 
@@ -104,7 +112,7 @@ export function useTasks() {
                 tasks.value[localTaskIndex] = {
                   ...tasks.value[localTaskIndex],
                   _id: convertedTask._id,
-                  id: convertedTask.id || syncItem.localId, // Keep local ID if server doesn't provide one
+                  id: convertedTask.id || syncItem.localId,
                 }
               }
 
@@ -121,13 +129,14 @@ export function useTasks() {
               console.log(`Updating local task ${syncItem.localId} after server update`)
               tasks.value[localTaskIndex] = {
                 ...convertedTask,
-                id: syncItem.localId, // Preserve local ID
+                id: syncItem.localId,
               }
             }
 
             syncedTaskIds.add(syncItem.localId)
           } else if (syncItem.operation === "delete" && syncItem.task._id) {
             await tasksAPI.deleteTask(syncItem.task._id, user.value.token)
+            console.log(`Task ${syncItem.task._id} deleted from server`)
             syncedTaskIds.add(syncItem.localId)
           }
         } catch (error) {
@@ -143,11 +152,17 @@ export function useTasks() {
       pendingSync.value = pendingSync.value.filter((item) => !syncedTaskIds.has(item.localId))
       storage.savePendingSync(pendingSync.value)
 
-      // Merge server tasks with local tasks
+      // Merge server tasks with local tasks, but exclude tasks that were deleted
       const mergedTasks = [...tasks.value]
 
-      // Add any new tasks from server that we don't have locally
+      // Add any new tasks from server that we don't have locally and weren't deleted
       for (const serverTask of serverTasks) {
+        // Skip if this task was marked for deletion
+        if (tasksMarkedForDeletion.has(serverTask._id)) {
+          console.log(`Skipping deleted task from server: ${serverTask.title}`)
+          continue
+        }
+
         const existsLocally = mergedTasks.some(
           (localTask) => localTask._id === serverTask._id || localTask.id === serverTask.id,
         )
